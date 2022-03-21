@@ -56,17 +56,22 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                 )
                 for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1)
                 for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1)
-                for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1)    
+                for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1)
+            ]
+
+            filtered_chunk_coords = [
+                chunk_coord
+                for chunk_coord in chunk_coords
+                if not should_check_chunk_exists or dst.chunk_exists(key, chunk_coord)
             ]
             
-            with ThreadPoolExecutor(max_workers=32) as executor:
+            with ThreadPoolExecutor(max_workers=64) as executor:
                 for progress in tqdm(
                     executor.map(
                         self.mirror_chunk,
                         repeat(dst),
                         repeat(key),
-                        (chunk_coord for chunk_coord in chunk_coords),
-                        (should_check_chunk_exists and dst.chunk_exists(key, chunk_coord) for chunk_coord in chunk_coords),
+                        (chunk_coord for chunk_coord in filtered_chunk_coords),
                     ),
                     total=(((size[0] - 1) // chunk_size[0] + 1)
                         * ((size[1] - 1) // chunk_size[1] + 1)
