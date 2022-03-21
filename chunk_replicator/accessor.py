@@ -10,7 +10,10 @@ import os
 from .dataproxy import DataProxyBucket
 from .util import retry
 
-WORKER_THREADS = os.getenv("WORKER_THREADS", 16)
+try:
+    WORKER_THREADS = int(os.getenv("WORKER_THREADS", "16"))
+except ValueError:
+    WORKER_THREADS = 16
 
 class MirrorSrcAccessor(Accessor):
     is_mirror_src = False
