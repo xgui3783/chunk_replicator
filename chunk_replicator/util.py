@@ -4,8 +4,7 @@ def retry(fn: Callable, times=5):
     retry_counter = 0
     while True:
         try:
-            fn()
-            break
+            return fn()
         except Exception as e:
             if retry_counter >= times:
                 raise e

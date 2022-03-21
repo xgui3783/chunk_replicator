@@ -1,3 +1,4 @@
+from typing import Any, List
 from neuroglancer_scripts.accessor import Accessor, _CHUNK_PATTERN_FLAT
 from neuroglancer_scripts.http_accessor import HttpAccessor
 from neuroglancer_scripts.precomputed_io import get_IO_for_existing_dataset
@@ -42,15 +43,24 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                     * ((size[1] - 1) // chunk_size[1] + 1)
                     * ((size[2] - 1) // chunk_size[2] + 1)),
                 desc="writing", unit="chunks", leave=True)
-        
+
+            should_check_chunk_exists = hasattr(dst, "chunk_exists") and callable(dst.chunk_exists)
+
+            # TODO add threading
             for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1):
                 for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1):
                     for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1):
                         chunk_coords = (
-                            x_chunk_idx * chunk_size[0], (x_chunk_idx + 1) * chunk_size[0],
-                            y_chunk_idx * chunk_size[1], (y_chunk_idx + 1) * chunk_size[1],
-                            z_chunk_idx * chunk_size[2], (z_chunk_idx + 1) * chunk_size[2],
+                            x_chunk_idx * chunk_size[0], min((x_chunk_idx + 1) * chunk_size[0], size[0]),
+                            y_chunk_idx * chunk_size[1], min((y_chunk_idx + 1) * chunk_size[1], size[1]),
+                            z_chunk_idx * chunk_size[2], min((z_chunk_idx + 1) * chunk_size[2], size[2]),
                         )
+
+                        if should_check_chunk_exists:
+                            if dst.chunk_exists(key, chunk_coords):
+                                progress_bar.update()
+                                continue
+
                         chunk = self.fetch_chunk(key, chunk_coords)
                         dst.store_chunk(chunk, key, chunk_coords)
                         progress_bar.update()
@@ -66,6 +76,8 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
     flat: bool = True
 
     dataproxybucket: DataProxyBucket
+
+    _existing_obj: List[Any] #typeddict with keys: name, bytes, content_type, hash, last_modified
 
     def __init__(self, noop=False, prefix=None, gzip=False, flat=True, dataproxybucket: DataProxyBucket=None) -> None:
         super().__init__()
@@ -89,6 +101,8 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
     def store_chunk(self, buf, key, chunk_coords, mime_type="application/octet-stream", overwrite=False):
         if self.noop:
             return
+
+        # TODO fix if gzip/flat is defined
         object_name = _CHUNK_PATTERN_FLAT.format(
             *chunk_coords,
             key=key,
@@ -102,3 +116,14 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
             buf
         ))
 
+    def chunk_exists(self, key, chunk_coords):
+        if not self._existing_obj:
+            self._existing_obj = [obj for obj in self.dataproxybucket.iterate_objects()]
+        
+        object_name = _CHUNK_PATTERN_FLAT.format(
+            *chunk_coords,
+            key=key,
+        )
+        if self.prefix:
+            object_name = f"{self.prefix}/{object_name}"
+        return object_name in [obj.get("name") for obj in self._existing_obj]

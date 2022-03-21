@@ -1,7 +1,9 @@
+from typing import Iterable
 from dataclasses import dataclass
 import requests
 
 from .user import User
+from .util import retry
 
 @dataclass
 class DataProxyBucket:
@@ -42,3 +44,28 @@ class DataProxyBucket:
             data=object
         )
         put_resposne.raise_for_status()
+
+    def list_objects(self, prefix: str=None, marker: str=None):
+        list_response = requests.get(
+            f"{self.dataproxy_url}{self.dataproxy_version}/buckets/{self.bucketname}",
+            headers={
+                "authorization": f"bearer {self.user.auth_token}"
+            },
+            params={
+                'prefix': prefix,
+                'marker': marker,
+            }
+        )
+        list_response.raise_for_status()
+        return list_response.json()
+    
+    def iterate_objects(self, prefix: str=None) -> Iterable:
+        marker=None
+        while True:
+            response = retry(lambda: self.list_objects(prefix, marker))
+            objects = response.get("objects", [])
+            if len(objects) == 0:
+                return 
+            marker = objects[-1].get("name")
+            for obj in objects:
+                yield obj
