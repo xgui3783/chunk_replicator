@@ -1,13 +1,16 @@
-from typing import Any, Callable, List
+from typing import Set
 from neuroglancer_scripts.accessor import Accessor, _CHUNK_PATTERN_FLAT
 from neuroglancer_scripts.http_accessor import HttpAccessor
 from neuroglancer_scripts.precomputed_io import get_IO_for_existing_dataset
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
+import os
 
 from .dataproxy import DataProxyBucket
 from .util import retry
+
+WORKER_THREADS = os.getenv("WORKER_THREADS", 16)
 
 class MirrorSrcAccessor(Accessor):
     is_mirror_src = False
@@ -20,9 +23,7 @@ class MirrorSrcAccessor(Accessor):
 class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
     is_mirror_src = True
 
-    def mirror_chunk(self, dst: Accessor, key: str, chunk_coords, skip: bool = False):
-        if skip:
-            return
+    def mirror_chunk(self, dst: Accessor, key: str, chunk_coords):
         chunk = self.fetch_chunk(key, chunk_coords)
         dst.store_chunk(chunk, key, chunk_coords)
 
@@ -62,17 +63,18 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             filtered_chunk_coords = [
                 chunk_coord
                 for chunk_coord in chunk_coords
-                if not should_check_chunk_exists or dst.chunk_exists(key, chunk_coord)
+                if not should_check_chunk_exists or not dst.chunk_exists(key, chunk_coord)
             ]
             
-            with ThreadPoolExecutor(max_workers=64) as executor:
+            print(f"Mirroring data for key {key}")
+            
+            with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
                 for progress in tqdm(
                     executor.map(
                         self.mirror_chunk,
                         repeat(dst),
                         repeat(key),
                         (chunk_coord for chunk_coord in filtered_chunk_coords),
-                        repeat(False)
                     ),
                     total=(((size[0] - 1) // chunk_size[0] + 1)
                         * ((size[1] - 1) // chunk_size[1] + 1)
@@ -95,7 +97,7 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 
     dataproxybucket: DataProxyBucket
 
-    _existing_obj: List[Any] = None #typeddict with keys: name, bytes, content_type, hash, last_modified
+    _existing_obj_name_set: Set[str] = set()
 
     def __init__(self, noop=False, prefix=None, gzip=False, flat=True, dataproxybucket: DataProxyBucket=None) -> None:
         super().__init__()
@@ -135,23 +137,22 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         ))
 
     def chunk_exists(self, key, chunk_coords):
-        if not self._existing_obj:
-            prefix = f"{key}/"
-            if self.prefix:
-                prefix = f"{self.prefix}/{prefix}"
+        if not self._existing_obj_name_set:
 
-            print(f"chunk_exists checking existing objects. Listing existing objects for {prefix}...")
-            self._existing_obj = tqdm(
-                self.dataproxybucket.iterate_objects(prefix=prefix),
+            print(f"Checking existing objects. Listing existing objects for {self.prefix}...")
+            
+            for obj in tqdm(
+                self.dataproxybucket.iterate_objects(prefix=self.prefix),
                 desc="listing",
                 unit="objects",
                 leave=True
-            )
-        
+            ):
+                self._existing_obj_name_set.add(obj.get("name"))
+
         object_name = _CHUNK_PATTERN_FLAT.format(
             *chunk_coords,
             key=key,
         )
         if self.prefix:
             object_name = f"{self.prefix}/{object_name}"
-        return object_name in [obj.get("name") for obj in self._existing_obj]
+        return object_name in self._existing_obj_name_set

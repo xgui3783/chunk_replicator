@@ -45,7 +45,7 @@ class DataProxyBucket:
         )
         put_resposne.raise_for_status()
 
-    def list_objects(self, prefix: str=None, marker: str=None, limit: int = 1000):
+    def list_objects(self, prefix: str=None, marker: str=None, limit: int = 10000):
         list_response = requests.get(
             f"{self.dataproxy_url}{self.dataproxy_version}/buckets/{self.bucketname}",
             headers={
@@ -66,7 +66,7 @@ class DataProxyBucket:
             response = retry(lambda: self.list_objects(prefix, marker))
             objects = response.get("objects", [])
             if len(objects) == 0:
-                return 
+                raise StopIteration
             marker = objects[-1].get("name")
             for obj in objects:
                 yield obj
