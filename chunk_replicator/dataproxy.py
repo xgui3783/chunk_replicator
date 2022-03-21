@@ -45,7 +45,7 @@ class DataProxyBucket:
         )
         put_resposne.raise_for_status()
 
-    def list_objects(self, prefix: str=None, marker: str=None):
+    def list_objects(self, prefix: str=None, marker: str=None, limit: int = 1000):
         list_response = requests.get(
             f"{self.dataproxy_url}{self.dataproxy_version}/buckets/{self.bucketname}",
             headers={
@@ -54,6 +54,7 @@ class DataProxyBucket:
             params={
                 'prefix': prefix,
                 'marker': marker,
+                'limit': limit,
             }
         )
         list_response.raise_for_status()

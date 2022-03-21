@@ -30,7 +30,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
         
-        
+        print("Begin mirroring. Got info:", io.info)
         for scale in io.info.get('scales'):
             
             key = scale.get('key')
@@ -133,7 +133,14 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
             prefix = f"{key}/"
             if self.prefix:
                 prefix = f"{self.prefix}/{prefix}"
-            self._existing_obj = [obj for obj in self.dataproxybucket.iterate_objects(prefix=prefix)]
+
+            print(f"chunk_exists checking existing objects. Listing existing objects for {prefix}...")
+            self._existing_obj = tqdm(
+                self.dataproxybucket.iterate_objects(prefix=prefix),
+                desc="listing",
+                unit="objects",
+                leave=True
+            )
         
         object_name = _CHUNK_PATTERN_FLAT.format(
             *chunk_coords,
