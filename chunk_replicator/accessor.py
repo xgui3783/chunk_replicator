@@ -72,6 +72,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                         repeat(dst),
                         repeat(key),
                         (chunk_coord for chunk_coord in filtered_chunk_coords),
+                        repeat(False)
                     ),
                     total=(((size[0] - 1) // chunk_size[0] + 1)
                         * ((size[1] - 1) // chunk_size[1] + 1)
