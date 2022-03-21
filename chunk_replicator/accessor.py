@@ -31,7 +31,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
         io = get_IO_for_existing_dataset(self)
         
         
-        for scale in io.info.get('scales')[2:]:
+        for scale in io.info.get('scales'):
             
             key = scale.get('key')
             assert key, f"key not defined"
