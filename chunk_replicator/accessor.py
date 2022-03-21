@@ -77,7 +77,7 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 
     dataproxybucket: DataProxyBucket
 
-    _existing_obj: List[Any] #typeddict with keys: name, bytes, content_type, hash, last_modified
+    _existing_obj: List[Any] = None #typeddict with keys: name, bytes, content_type, hash, last_modified
 
     def __init__(self, noop=False, prefix=None, gzip=False, flat=True, dataproxybucket: DataProxyBucket=None) -> None:
         super().__init__()
