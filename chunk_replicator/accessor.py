@@ -1,8 +1,10 @@
-from typing import Any, List
+from typing import Any, Callable, List
 from neuroglancer_scripts.accessor import Accessor, _CHUNK_PATTERN_FLAT
 from neuroglancer_scripts.http_accessor import HttpAccessor
 from neuroglancer_scripts.precomputed_io import get_IO_for_existing_dataset
 from tqdm import tqdm
+from concurrent.futures import ThreadPoolExecutor
+from itertools import repeat
 
 from .dataproxy import DataProxyBucket
 from .util import retry
@@ -18,12 +20,18 @@ class MirrorSrcAccessor(Accessor):
 class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
     is_mirror_src = True
 
+    def mirror_chunk(self, dst: Accessor, key: str, chunk_coords, skip: bool = False):
+        if skip:
+            return
+        chunk = self.fetch_chunk(key, chunk_coords)
+        dst.store_chunk(chunk, key, chunk_coords)
+
     def mirror_to(self, dst: Accessor):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
         
         
-        for scale in io.info.get('scales'):
+        for scale in io.info.get('scales')[2:]:
             
             key = scale.get('key')
             assert key, f"key not defined"
@@ -38,32 +46,36 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             chunk_size = chunk_sizes[0]
             assert len(chunk_size) == 3, f"assert len(chunk_size) == 3, but got {len(chunk_size)}"
 
-            progress_bar = tqdm(
-                total=(((size[0] - 1) // chunk_size[0] + 1)
-                    * ((size[1] - 1) // chunk_size[1] + 1)
-                    * ((size[2] - 1) // chunk_size[2] + 1)),
-                desc="writing", unit="chunks", leave=True)
-
             should_check_chunk_exists = hasattr(dst, "chunk_exists") and callable(dst.chunk_exists)
 
-            # TODO add threading
-            for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1):
-                for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1):
-                    for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1):
-                        chunk_coords = (
-                            x_chunk_idx * chunk_size[0], min((x_chunk_idx + 1) * chunk_size[0], size[0]),
-                            y_chunk_idx * chunk_size[1], min((y_chunk_idx + 1) * chunk_size[1], size[1]),
-                            z_chunk_idx * chunk_size[2], min((z_chunk_idx + 1) * chunk_size[2], size[2]),
-                        )
-
-                        if should_check_chunk_exists:
-                            if dst.chunk_exists(key, chunk_coords):
-                                progress_bar.update()
-                                continue
-
-                        chunk = self.fetch_chunk(key, chunk_coords)
-                        dst.store_chunk(chunk, key, chunk_coords)
-                        progress_bar.update()
+            chunk_coords = [
+                (
+                    x_chunk_idx * chunk_size[0], min((x_chunk_idx + 1) * chunk_size[0], size[0]),
+                    y_chunk_idx * chunk_size[1], min((y_chunk_idx + 1) * chunk_size[1], size[1]),
+                    z_chunk_idx * chunk_size[2], min((z_chunk_idx + 1) * chunk_size[2], size[2]),
+                )
+                for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1)
+                for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1)
+                for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1)    
+            ]
+            
+            with ThreadPoolExecutor(max_workers=32) as executor:
+                for progress in tqdm(
+                    executor.map(
+                        self.mirror_chunk,
+                        repeat(dst),
+                        repeat(key),
+                        (chunk_coord for chunk_coord in chunk_coords),
+                        (should_check_chunk_exists and dst.chunk_exists(key, chunk_coord) for chunk_coord in chunk_coords),
+                    ),
+                    total=(((size[0] - 1) // chunk_size[0] + 1)
+                        * ((size[1] - 1) // chunk_size[1] + 1)
+                        * ((size[2] - 1) // chunk_size[2] + 1)),
+                    desc="writing",
+                    unit="chunks",
+                    leave=True,
+                ):
+                    ...
 
 
 class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
@@ -118,7 +130,10 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 
     def chunk_exists(self, key, chunk_coords):
         if not self._existing_obj:
-            self._existing_obj = [obj for obj in self.dataproxybucket.iterate_objects()]
+            prefix = f"{key}/"
+            if self.prefix:
+                prefix = f"{self.prefix}/{prefix}"
+            self._existing_obj = [obj for obj in self.dataproxybucket.iterate_objects(prefix=prefix)]
         
         object_name = _CHUNK_PATTERN_FLAT.format(
             *chunk_coords,
