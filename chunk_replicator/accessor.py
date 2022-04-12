@@ -6,6 +6,7 @@ from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 import os
+import json
 
 from .dataproxy import DataProxyBucket
 from .util import retry
@@ -33,8 +34,12 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
     def mirror_to(self, dst: Accessor):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
-        
+
         print("Begin mirroring. Got info:", io.info)
+
+        print("Mirroring info ...")
+        dst.store_file("info", json.dumps(io.info).encode("utf-8"))
+
         for scale in io.info.get('scales'):
             
             key = scale.get('key')
@@ -117,7 +122,15 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
     def store_file(self, relative_path, buf, mime_type="application/octet-stream", overwrite=False):
         if self.noop:
             return
-        return super().store_file(relative_path, buf, mime_type, overwrite)
+        object_name = relative_path
+        if self.prefix:
+            object_name = f"{self.prefix}/{object_name}"
+
+        dataproxybucket = self.dataproxybucket
+        retry(lambda: dataproxybucket.put_object(
+            object_name,
+            buf
+        ))
     
     def store_chunk(self, buf, key, chunk_coords, mime_type="application/octet-stream", overwrite=False):
         if self.noop:
