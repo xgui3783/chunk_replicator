@@ -32,17 +32,28 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
         chunk = self.fetch_chunk(key, chunk_coords)
         dst.store_chunk(chunk, key, chunk_coords)
     
-    def mirror_file(self, dst: Accessor, relative_path: str, mime_type="application/octet-stream"):
-        file_content = self.fetch_file(relative_path)
-        dst.store_file(relative_path, file_content, mime_type)
-        if relative_path.endswith(":0"):
-            dst.store_file(relative_path[:-2], file_content, mime_type)
+    def mirror_file(self, dst: Accessor, relative_path: str, mime_type="application/octet-stream", fail_fast: bool=False):
+        try:
+            file_content = self.fetch_file(relative_path)
+            dst.store_file(relative_path, file_content, mime_type)
+            if relative_path.endswith(":0"):
+                dst.store_file(relative_path[:-2], file_content, mime_type)
+        except Exception as e:
+            if fail_fast:
+                raise e
+            logger.warn(f"mirror_file {relative_path} failed. fail_fast flag not set, continue...")
 
-    def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int]):
+    def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int], fail_fast=False):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
         mesh_dir = io.info.get("mesh")
-        assert mesh_dir, f"expecting mesh key defined in info, but is not."
+        try:
+            assert mesh_dir, f"expecting mesh key defined in info, but is not."
+        except AssertionError as e:
+            if fail_fast:
+                raise e
+            logger.warn(f"{e}, but fail_fast flag is not set... Skipping")
+            return
 
         with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
             for progress in tqdm(
@@ -50,7 +61,8 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                     self.mirror_file,
                     repeat(dst),
                     (f"{mesh_dir}/{str(idx)}:0" for idx in mesh_indicies),
-                    repeat("application/json")
+                    repeat("application/json"),
+                    repeat(fail_fast),
                 ),
                 total=len(mesh_indicies),
                 desc="Fetching and writing mesh metadata...",
@@ -70,6 +82,8 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                     self.mirror_file,
                     repeat(dst),
                     fragments,
+                    repeat("application/octet-stream"),
+                    repeat(fail_fast),
                 ),
                 total=len(fragments),
                 desc="Fetching and writing meshes...",
