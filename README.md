@@ -20,9 +20,6 @@ user = User(auth_token=auth_token)
 bucket = DataProxyBucket(user, "MY_BUCKET_NAME")
 
 proxy = EbrainsDataproxyHttpReplicatorAccessor(dataproxybucket=bucket, prefix="bigbrain_2015")
-io = get_IO_for_existing_dataset(bigbrain_accessor)
-import json
-proxy.store_file("info", json.dumps(io.info).encode("utf-8"))
 bigbrain_accessor.mirror_to(proxy)
 ```
 
