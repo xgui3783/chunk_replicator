@@ -90,7 +90,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             self.mirror_meshes(dst, mesh_indicies=mesh_indicies)
 
         logger.debug("Mirroring info ...")
-        dst.store_file("info", json.dumps(io.info).encode("utf-8"))
+        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json")
 
         for scale in io.info.get('scales'):
             
