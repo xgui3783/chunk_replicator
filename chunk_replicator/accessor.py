@@ -38,6 +38,46 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
         if relative_path.endswith(":0"):
             dst.store_file(relative_path[:-2], file_content, mime_type)
 
+    def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int]):
+        assert dst.can_write
+        io = get_IO_for_existing_dataset(self)
+        mesh_dir = io.info.get("mesh")
+        assert mesh_dir, f"expecting mesh key defined in info, but is not."
+
+        with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
+            for progress in tqdm(
+                executor.map(
+                    self.mirror_file,
+                    repeat(dst),
+                    (f"{mesh_dir}/{str(idx)}:0" for idx in mesh_indicies),
+                    repeat("application/json")
+                ),
+                total=len(mesh_indicies),
+                desc="Fetching and writing mesh metadata...",
+                unit="files",
+                leave=True,
+            ):
+                ...
+        fragments = [f"{mesh_dir}/{frag}"
+                    for idx in mesh_indicies
+                    for frag in json.loads(
+                        dst.fetch_file(f"{mesh_dir}/{str(idx)}:0").decode("utf-8")
+                    ).get("fragments")]
+
+        with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
+            for progress in tqdm(
+                executor.map(
+                    self.mirror_file,
+                    repeat(dst),
+                    fragments,
+                ),
+                total=len(fragments),
+                desc="Fetching and writing meshes...",
+                unit="meshes",
+                leave=True
+            ):
+                ...
+
 
     def mirror_to(self, dst: Accessor, *, mesh_indicies: List[int]=None):
         assert dst.can_write
@@ -47,44 +87,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
 
         if mesh_indicies is not None:
             logger.debug("mesh_indicies provided, mirroring meshes...")
-            mesh_dir = io.info.get("mesh")
-            assert mesh_dir, f"expecting mesh key defined in info, but is not."
-
-            with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
-                for progress in tqdm(
-                    executor.map(
-                        self.mirror_file,
-                        repeat(dst),
-                        (f"{mesh_dir}/{str(idx)}:0" for idx in mesh_indicies),
-                        repeat("application/json")
-                    ),
-                    total=len(mesh_indicies),
-                    desc="Fetching and writing mesh metadata...",
-                    unit="files",
-                    leave=True,
-                ):
-                    ...
-            
-            fragments = [f"{mesh_dir}/{frag}"
-                        for idx in mesh_indicies
-                        for frag in json.loads(
-                            dst.fetch_file(f"{mesh_dir}/{str(idx)}:0").decode("utf-8")
-                        ).get("fragments")]
-
-            with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
-                for progress in tqdm(
-                    executor.map(
-                        self.mirror_file,
-                        repeat(dst),
-                        fragments,
-                    ),
-                    total=len(fragments),
-                    desc="Fetching and writing meshes...",
-                    unit="meshes",
-                    leave=True
-                ):
-                    ...
-
+            self.mirror_meshes(dst, mesh_indicies=mesh_indicies)
 
         logger.debug("Mirroring info ...")
         dst.store_file("info", json.dumps(io.info).encode("utf-8"))
