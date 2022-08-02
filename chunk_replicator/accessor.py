@@ -54,7 +54,8 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                 raise e
             logger.warn(f"{e}, but fail_fast flag is not set... Skipping")
             return
-
+            
+        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=True)
         with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
             for progress in tqdm(
                 executor.map(
@@ -104,7 +105,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             self.mirror_meshes(dst, mesh_indicies=mesh_indicies)
 
         logger.debug("Mirroring info ...")
-        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json")
+        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=True)
 
         for scale in io.info.get('scales'):
             
