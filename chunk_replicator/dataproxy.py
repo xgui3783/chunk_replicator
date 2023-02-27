@@ -66,7 +66,7 @@ class DataProxyBucket:
             response = retry(lambda: self.list_objects(prefix, marker))
             objects = response.get("objects", [])
             if len(objects) == 0:
-                raise StopIteration
+                return
             marker = objects[-1].get("name")
             for obj in objects:
                 yield obj
