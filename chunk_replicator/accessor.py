@@ -1,5 +1,6 @@
-from typing import List, Set
+from typing import List, Set, Tuple, Iterator
 from neuroglancer_scripts.accessor import Accessor, _CHUNK_PATTERN_FLAT
+from neuroglancer_scripts.file_accessor import FileAccessor
 from neuroglancer_scripts.http_accessor import HttpAccessor
 from neuroglancer_scripts.precomputed_io import get_IO_for_existing_dataset
 from tqdm import tqdm
@@ -7,47 +8,120 @@ from concurrent.futures import ThreadPoolExecutor
 from itertools import repeat
 import os
 import json
+from pathlib import Path
+import gzip
 
 from .dataproxy import DataProxyBucket
-from .util import retry
+from .util import retry, retry_dec
 from .logger import logger
+from .exceptions import NoMeshException
 
 try:
     WORKER_THREADS = int(os.getenv("WORKER_THREADS", "16"))
 except ValueError:
     WORKER_THREADS = 16
 
+"""
+Type representing Volume Bounding, unpacks to
+xmin, xmax, ymin, ymax, zmin, zmax
+"""
+VBoundType = Tuple[int, int, int, int, int, int]
+
 class MirrorSrcAccessor(Accessor):
+    """
+    Abstract class, providing mirror_to method
+    """
     is_mirror_src = False
     is_mirror_dst = False
-
-    def mirror_to(self, src: Accessor):
-        raise NotImplementedError
-
-
-class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
-    is_mirror_src = True
-
-    def mirror_chunk(self, dst: Accessor, key: str, chunk_coords):
-        chunk = self.fetch_chunk(key, chunk_coords)
-        dst.store_chunk(chunk, key, chunk_coords)
-    
-    def mirror_file(self, dst: Accessor, relative_path: str, mime_type="application/octet-stream", fail_fast: bool=False):
-        try:
-            file_content = self.fetch_file(relative_path)
-            dst.store_file(relative_path, file_content, mime_type)
-            if relative_path.endswith(":0"):
-                dst.store_file(relative_path[:-2], file_content, mime_type)
-        except Exception as e:
-            if fail_fast:
-                raise e
-            logger.warn(f"mirror_file {relative_path} failed. fail_fast flag not set, continue...")
 
     def mirror_info(self, dst: Accessor):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
         dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=True)
 
+    def mirror_to(self, dst: Accessor):
+        self.mirror_chunks(dst)
+        try:
+            self.mirror_meshes(dst)
+        except NotImplementedError:
+            logger.warn(f"mirror mehses for {self.__class__} not implemented. Skipping!")
+        except NoMeshException:
+            pass
+
+        self.mirror_info()
+
+    def mirror_meshes(self, dst: Accessor):
+        raise NotImplementedError
+    
+    def mirror_chunks(self, dst: Accessor):
+        with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
+            for progress in tqdm(
+                executor.map(
+                    self.mirror_chunk,
+                    repeat(dst),
+                    self.iter_chunks()
+                ),
+                desc="writing",
+                unit="chunks",
+                leave=True,
+            ): pass
+    
+    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType]):
+        key, chunk_coords = key_chunk_coords
+        return dst.store_chunk(self.fetch_chunk(key, chunk_coords), key, chunk_coords)
+
+    def iter_chunks(self) -> Iterator[Tuple[str, VBoundType]]:
+        """
+        Yields all combinations of key, [coord]
+        """
+        io = get_IO_for_existing_dataset(self)
+        for scale in io.info.get("scales", []):
+            key = scale.get('key')
+            assert key, f"key not defined"
+            
+            size = scale.get('size')
+            assert size, f"size not defined for scale: {key}"
+            assert len(size) == 3
+            
+            chunk_sizes = scale.get('chunk_sizes')
+            assert chunk_sizes, f"chunk_sizes not defined for scale: {key}"
+            assert len(chunk_sizes) == 1, f"assert len(chunk_sizes) == 1, but got {len(chunk_sizes)}"
+            chunk_size = chunk_sizes[0]
+            assert len(chunk_size) == 3, f"assert len(chunk_size) == 3, but got {len(chunk_size)}"
+            for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1):
+                for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1):
+                    for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1):
+                        yield key, (
+                            x_chunk_idx * chunk_size[0], min((x_chunk_idx + 1) * chunk_size[0], size[0]),
+                            y_chunk_idx * chunk_size[1], min((y_chunk_idx + 1) * chunk_size[1], size[1]),
+                            z_chunk_idx * chunk_size[2], min((z_chunk_idx + 1) * chunk_size[2], size[2]),
+                        )
+
+
+class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
+    is_mirror_src = True
+
+    @retry_dec()
+    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType]):
+        return super().mirror_chunk(dst, key_chunk_coords)
+    
+    @retry_dec()
+    def mirror_file(self, dst: Accessor, relative_path: str, mime_type="application/octet-stream", fail_fast: bool=False):
+        try:
+            file_content = self.fetch_file(relative_path)
+            dst.store_file(relative_path, file_content, mime_type, overwrite=True)
+            if relative_path.endswith(":0"):
+                dst.store_file(relative_path[:-2], file_content, mime_type, overwrite=True)
+        except Exception as e:
+            if fail_fast:
+                raise e
+            logger.warn(f"mirror_file {relative_path} failed: {str(e)}. fail_fast flag not set, continue...")
+
+    @retry_dec()
+    def mirror_info(self, dst: Accessor):
+        super().mirror_info(dst)
+
+    @retry_dec()
     def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int], fail_fast=False):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
@@ -112,56 +186,29 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
         logger.debug("Mirroring info ...")
         self.mirror_info(dst)
 
-        for scale in io.info.get('scales'):
-            
-            key = scale.get('key')
-            assert key, f"key not defined"
+        should_check_chunk_exists = hasattr(dst, "chunk_exists") and callable(dst.chunk_exists)
 
-            size = scale.get('size')
-            assert size, f"size not defined for scale: {key}"
-            assert len(size) == 3
+        chunk_coords = [ chunk_coord for chunk_coord in self.iter_chunks() ]
 
-            chunk_sizes = scale.get('chunk_sizes')
-            assert chunk_sizes, f"chunk_sizes not defined for scale: {key}"
-            assert len(chunk_sizes) == 1, f"assert len(chunk_sizes) == 1, but got {len(chunk_sizes)}"
-            chunk_size = chunk_sizes[0]
-            assert len(chunk_size) == 3, f"assert len(chunk_size) == 3, but got {len(chunk_size)}"
-
-            should_check_chunk_exists = hasattr(dst, "chunk_exists") and callable(dst.chunk_exists)
-
-            chunk_coords = [
-                (
-                    x_chunk_idx * chunk_size[0], min((x_chunk_idx + 1) * chunk_size[0], size[0]),
-                    y_chunk_idx * chunk_size[1], min((y_chunk_idx + 1) * chunk_size[1], size[1]),
-                    z_chunk_idx * chunk_size[2], min((z_chunk_idx + 1) * chunk_size[2], size[2]),
-                )
-                for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1)
-                for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1)
-                for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1)
-            ]
-
-            filtered_chunk_coords = [
-                chunk_coord
-                for chunk_coord in chunk_coords
-                if not should_check_chunk_exists or not dst.chunk_exists(key, chunk_coord)
-            ]
-            
-            logger.debug(f"Mirroring data for key {key}")
-            
-            with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
-                for progress in tqdm(
-                    executor.map(
-                        self.mirror_chunk,
-                        repeat(dst),
-                        repeat(key),
-                        (chunk_coord for chunk_coord in filtered_chunk_coords),
-                    ),
-                    total=len(filtered_chunk_coords),
-                    desc="writing",
-                    unit="chunks",
-                    leave=True,
-                ):
-                    ...
+        filtered_chunk_coords = [
+            (key, chunk_coord)
+            for key, chunk_coord in chunk_coords
+            if not should_check_chunk_exists or not dst.chunk_exists(key, chunk_coord)
+        ]
+        
+        with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
+            for progress in tqdm(
+                executor.map(
+                    self.mirror_chunk,
+                    repeat(dst),
+                    filtered_chunk_coords,
+                ),
+                total=len(filtered_chunk_coords),
+                desc="writing",
+                unit="chunks",
+                leave=True,
+            ):
+                ...
 
 
 class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
@@ -191,6 +238,8 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         if self.dataproxybucket is None:
             raise RuntimeError(f"dataproxybucket cannot be left empty")
 
+
+    @retry_dec()
     def store_file(self, relative_path, buf, mime_type="application/octet-stream", overwrite=False):
         if self.noop:
             return
@@ -199,11 +248,12 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
             object_name = f"{self.prefix}/{object_name}"
 
         dataproxybucket = self.dataproxybucket
-        retry(lambda: dataproxybucket.put_object(
+        dataproxybucket.put_object(
             object_name,
             buf
-        ))
+        )
     
+    @retry_dec()
     def store_chunk(self, buf, key, chunk_coords, mime_type="application/octet-stream", overwrite=False):
         if self.noop:
             return
@@ -217,10 +267,10 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
             object_name = f"{self.prefix}/{object_name}"
 
         dataproxybucket = self.dataproxybucket
-        retry(lambda: dataproxybucket.put_object(
+        dataproxybucket.put_object(
             object_name,
             buf
-        ))
+        )
 
     def chunk_exists(self, key, chunk_coords):
         if not self._existing_obj_name_set:
@@ -242,3 +292,37 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         if self.prefix:
             object_name = f"{self.prefix}/{object_name}"
         return object_name in self._existing_obj_name_set
+
+
+class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
+    is_mirror_src = True
+
+    def mirror_meshes(self, dst: Accessor):
+        io = get_IO_for_existing_dataset(self)
+        
+        mesh_path = io.info.get("mesh")
+        if not mesh_path:
+            raise NoMeshException
+        
+        mesh_dir = Path(self.base_path / mesh_path)
+
+        for dirpath, dirnames, filenames in os.walk(mesh_dir):
+            for filename in filenames:
+                mesh_filename = Path(dirpath, filename)
+
+                buf = None
+                mime_type = "application/octet-stream"
+                
+                if mesh_filename.suffix == ".gz":
+                    with gzip.open(mesh_filename,  "rb") as fp:
+                        buf = fp.read()
+                else:
+                    with open(mesh_filename, "rb") as fp:
+                        buf = fp.read()
+                        try:
+                            json.load(fp)
+                            mime_type = "application/json"
+                        except json.JSONDecodeError:
+                            pass
+
+                dst.store_file(mesh_filename, buf, mime_type)
