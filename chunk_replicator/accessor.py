@@ -326,3 +326,9 @@ class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
                             pass
 
                 dst.store_file(mesh_filename, buf, mime_type)
+
+__all__ = [
+    "LocalSrcAccessor",
+    "EbrainsDataproxyHttpReplicatorAccessor",
+    "HttpMirrorSrcAccessor"
+]
