@@ -48,7 +48,7 @@ class MirrorSrcAccessor(Accessor):
         except NoMeshException:
             pass
 
-        self.mirror_info()
+        self.mirror_info(dst)
 
     def mirror_meshes(self, dst: Accessor):
         raise NotImplementedError
