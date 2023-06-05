@@ -219,19 +219,28 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
     prefix: str
     gzip: bool = False
     flat: bool = True
+    smart_gzip: bool = True
 
     dataproxybucket: DataProxyBucket
 
     _existing_obj_name_set: Set[str] = set()
 
-    def __init__(self, noop=False, prefix=None, gzip=False, flat=True, dataproxybucket: DataProxyBucket=None) -> None:
+    GZIP_CONTENT_HEADER = {
+        'Content-encoding': 'gzip'
+    }
+
+    def __init__(self, noop=False, prefix=None, gzip=False, flat=True, smart_gzip=True, dataproxybucket: DataProxyBucket=None) -> None:
         super().__init__()
         
         self.noop = noop
         self.prefix = prefix
 
+        if gzip:
+            logger.warn(f"Try smartgzip, you will like it!")
+
         self.gzip = gzip
         self.flat = flat
+        self.smart_gzip = smart_gzip
 
         self.dataproxybucket = dataproxybucket
         
@@ -247,10 +256,12 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         if self.prefix:
             object_name = f"{self.prefix}/{object_name}"
 
+        enable_gzip = (self.smart_gzip or self.gzip) and mime_type == "application/octet-stream"
         dataproxybucket = self.dataproxybucket
         dataproxybucket.put_object(
             object_name,
-            buf
+            gzip.compress(buf) if enable_gzip else buf,
+            headers=self.GZIP_CONTENT_HEADER if enable_gzip else {}
         )
     
     @retry_dec()
@@ -269,7 +280,8 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         dataproxybucket = self.dataproxybucket
         dataproxybucket.put_object(
             object_name,
-            buf
+            gzip.compress(buf) if self.smart_gzip or self.gzip else buf,
+            headers=self.GZIP_CONTENT_HEADER if self.smart_gzip else {}
         )
 
     def chunk_exists(self, key, chunk_coords):

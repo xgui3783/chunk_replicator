@@ -28,20 +28,25 @@ class DataProxyBucket:
     def delete_object(self, object_name: str):
         raise NotImplementedError
 
-    def put_object(self, object_name: str, object: bytes):
+    def put_object(self, object_name: str, object: bytes, **kwargs):
         
+        kg_header = kwargs.pop("headers", {})
         response = requests.put(
             f"{self.dataproxy_url}{self.dataproxy_version}/buckets/{self.bucketname}/{object_name}",
             headers={
-                "authorization": f"bearer {self.user.auth_token}"
-            }
+                "authorization": f"bearer {self.user.auth_token}",
+                **kg_header,
+            },
+            **kwargs
         )
         response.raise_for_status()
         temp_url = response.json().get("url")
 
         put_resposne = requests.put(
             temp_url,
-            data=object
+            data=object,
+            headers=kg_header,
+            **kwargs
         )
         put_resposne.raise_for_status()
 
