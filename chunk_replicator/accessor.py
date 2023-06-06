@@ -135,8 +135,8 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             logger.warn(f"mirror_file {relative_path} failed: {str(e)}. fail_fast flag not set, continue...")
 
     @retry_dec()
-    def mirror_metadata(self, dst: Accessor):
-        super().mirror_metadata(dst)
+    def mirror_metadata(self, dst: Accessor, **kwargs):
+        super().mirror_metadata(dst, **kwargs)
 
     @retry_dec()
     def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int], fail_fast=False, ovewrite=False):
