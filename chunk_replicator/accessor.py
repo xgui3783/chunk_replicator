@@ -34,49 +34,58 @@ class MirrorSrcAccessor(Accessor):
     is_mirror_src = False
     is_mirror_dst = False
 
-    def mirror_metadata(self, dst: Accessor):
+    def mirror_metadata(self, dst: Accessor, overwite=False):
         assert dst.can_write
 
         # mirror /info
         io = get_IO_for_existing_dataset(self)
-        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=True)
+        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=overwite)
 
         # mirror /transform
-        dst.store_file("transform.json", self.fetch_file("transform.json"), mime_type="application/json", overwrite=True)
+        dst.store_file("transform.json", self.fetch_file("transform.json"), mime_type="application/json", overwrite=overwite)
 
-    def mirror_to(self, dst: Accessor):
-        self.mirror_chunks(dst)
+    def mirror_to(self, dst: Accessor, overwrite=False):
+        self.mirror_chunks(dst, overwrite=overwrite)
         try:
-            self.mirror_meshes(dst)
+            self.mirror_meshes(dst, overwrite=overwrite)
         except NotImplementedError:
             logger.warn(f"mirror mehses for {self.__class__} not implemented. Skipping!")
         except NoMeshException:
             pass
 
-        self.mirror_metadata(dst)
+        self.mirror_metadata(dst, overwrite=overwrite)
 
-    def mirror_meshes(self, dst: Accessor):
+    def mirror_meshes(self, dst: Accessor, overwrite=False):
         raise NotImplementedError
     
-    def mirror_chunks(self, dst: Accessor):
+    def mirror_chunks(self, dst: Accessor, overwrite=False):
+        iter_chunks = [val for val in self.iter_chunks()]
+
+        # a bit hacky to populate the existing name set, without calling it once for every thread worker
+        if len(iter_chunks) > 0 and not overwrite and hasattr(dst, "chunk_exists") and callable(dst.chunk_exists):
+            key, chunk_coord = iter_chunks[0]
+            dst.chunk_exists(key, chunk_coord)
+
         with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
             for progress in tqdm(
                 executor.map(
                     self.mirror_chunk,
                     repeat(dst),
-                    self.iter_chunks()
+                    iter_chunks,
+                    repeat(overwrite)
                 ),
                 desc="writing",
                 unit="chunks",
                 leave=True,
+                total=len(iter_chunks)
             ): pass
     
-    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType]):
+    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType], overwrite):
         key, chunk_coords = key_chunk_coords
-        if hasattr(dst, "chunk_exists") and callable(dst.chunk_exists):
+        if not overwrite and hasattr(dst, "chunk_exists") and callable(dst.chunk_exists):
             if dst.chunk_exists(key, chunk_coords):
                 return
-        return dst.store_chunk(self.fetch_chunk(key, chunk_coords), key, chunk_coords)
+        return dst.store_chunk(self.fetch_chunk(key, chunk_coords), key, chunk_coords, overwrite=overwrite)
 
     def iter_chunks(self) -> Iterator[Tuple[str, VBoundType]]:
         """
@@ -110,16 +119,16 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
     is_mirror_src = True
 
     @retry_dec()
-    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType]):
-        return super().mirror_chunk(dst, key_chunk_coords)
+    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType], overwrite):
+        return super().mirror_chunk(dst, key_chunk_coords, overwrite)
     
     @retry_dec()
-    def mirror_file(self, dst: Accessor, relative_path: str, mime_type="application/octet-stream", fail_fast: bool=False):
+    def mirror_file(self, dst: Accessor, relative_path: str, mime_type="application/octet-stream", fail_fast: bool=False, overwrite=False):
         try:
             file_content = self.fetch_file(relative_path)
-            dst.store_file(relative_path, file_content, mime_type, overwrite=True)
+            dst.store_file(relative_path, file_content, mime_type, overwrite=overwrite)
             if relative_path.endswith(":0"):
-                dst.store_file(relative_path[:-2], file_content, mime_type, overwrite=True)
+                dst.store_file(relative_path[:-2], file_content, mime_type, overwrite=overwrite)
         except Exception as e:
             if fail_fast:
                 raise
@@ -130,7 +139,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
         super().mirror_metadata(dst)
 
     @retry_dec()
-    def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int], fail_fast=False):
+    def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int], fail_fast=False, ovewrite=False):
         assert dst.can_write
         io = get_IO_for_existing_dataset(self)
         mesh_dir = io.info.get("mesh")
@@ -150,6 +159,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                     (f"{mesh_dir}/{str(idx)}:0" for idx in mesh_indicies),
                     repeat("application/json"),
                     repeat(fail_fast),
+                    repeat(ovewrite),
                 ),
                 total=len(mesh_indicies),
                 desc="Fetching and writing mesh metadata...",
@@ -171,6 +181,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                     fragments,
                     repeat("application/octet-stream"),
                     repeat(fail_fast),
+                    repeat(ovewrite),
                 ),
                 total=len(fragments),
                 desc="Fetching and writing meshes...",
@@ -278,7 +289,7 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
     is_mirror_src = True
 
-    def mirror_meshes(self, dst: Accessor):
+    def mirror_meshes(self, dst: Accessor, overwrite=False):
         io = get_IO_for_existing_dataset(self)
         
         mesh_path = io.info.get("mesh")
