@@ -285,12 +285,12 @@ class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
         if not mesh_path:
             raise NoMeshException
         
-        mesh_dir = Path(self.base_path / mesh_path)
+        mesh_dir = Path(self.base_path) / mesh_path
 
         for dirpath, dirnames, filenames in os.walk(mesh_dir):
             for filename in filenames:
                 mesh_filename = Path(dirpath, filename)
-                output_meshname = Path(mesh_dir, filename).with_suffix('')
+                output_meshname = Path(mesh_path, filename).with_suffix('')
 
                 buf = None
                 mime_type = "application/octet-stream"
