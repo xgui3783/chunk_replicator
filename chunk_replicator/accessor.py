@@ -73,6 +73,9 @@ class MirrorSrcAccessor(Accessor):
     
     def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType]):
         key, chunk_coords = key_chunk_coords
+        if hasattr(dst, "chunk_exists") and callable(dst.chunk_exists):
+            if dst.chunk_exists(key, chunk_coords):
+                return
         return dst.store_chunk(self.fetch_chunk(key, chunk_coords), key, chunk_coords)
 
     def iter_chunks(self) -> Iterator[Tuple[str, VBoundType]]:
@@ -119,7 +122,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                 dst.store_file(relative_path[:-2], file_content, mime_type, overwrite=True)
         except Exception as e:
             if fail_fast:
-                raise e
+                raise
             logger.warn(f"mirror_file {relative_path} failed: {str(e)}. fail_fast flag not set, continue...")
 
     @retry_dec()
@@ -173,44 +176,6 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
                 desc="Fetching and writing meshes...",
                 unit="meshes",
                 leave=True
-            ):
-                ...
-
-
-    def mirror_to(self, dst: Accessor, *, mesh_indicies: List[int]=None):
-        assert dst.can_write
-        io = get_IO_for_existing_dataset(self)
-
-        logger.debug("Begin mirroring. Got info:", io.info)
-
-        if mesh_indicies is not None:
-            logger.debug("mesh_indicies provided, mirroring meshes...")
-            self.mirror_meshes(dst, mesh_indicies=mesh_indicies)
-
-        logger.debug("Mirroring info ...")
-        self.mirror_metadata(dst)
-
-        should_check_chunk_exists = hasattr(dst, "chunk_exists") and callable(dst.chunk_exists)
-
-        chunk_coords = [ chunk_coord for chunk_coord in self.iter_chunks() ]
-
-        filtered_chunk_coords = [
-            (key, chunk_coord)
-            for key, chunk_coord in chunk_coords
-            if not should_check_chunk_exists or not dst.chunk_exists(key, chunk_coord)
-        ]
-        
-        with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
-            for progress in tqdm(
-                executor.map(
-                    self.mirror_chunk,
-                    repeat(dst),
-                    filtered_chunk_coords,
-                ),
-                total=len(filtered_chunk_coords),
-                desc="writing",
-                unit="chunks",
-                leave=True,
             ):
                 ...
 
@@ -325,6 +290,7 @@ class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
         for dirpath, dirnames, filenames in os.walk(mesh_dir):
             for filename in filenames:
                 mesh_filename = Path(dirpath, filename)
+                output_meshname = Path(mesh_dir, filename).with_suffix('')
 
                 buf = None
                 mime_type = "application/octet-stream"
@@ -341,7 +307,7 @@ class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
                         except json.JSONDecodeError:
                             pass
 
-                dst.store_file(mesh_filename, buf, mime_type)
+                dst.store_file(output_meshname, buf, mime_type)
 
 __all__ = [
     "LocalSrcAccessor",
