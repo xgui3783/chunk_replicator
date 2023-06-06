@@ -34,10 +34,15 @@ class MirrorSrcAccessor(Accessor):
     is_mirror_src = False
     is_mirror_dst = False
 
-    def mirror_info(self, dst: Accessor):
+    def mirror_metadata(self, dst: Accessor):
         assert dst.can_write
+
+        # mirror /info
         io = get_IO_for_existing_dataset(self)
         dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=True)
+
+        # mirror /transform
+        dst.store_file("transform.json", self.fetch_file("transform.json"), mime_type="application/json", overwrite=True)
 
     def mirror_to(self, dst: Accessor):
         self.mirror_chunks(dst)
@@ -48,7 +53,7 @@ class MirrorSrcAccessor(Accessor):
         except NoMeshException:
             pass
 
-        self.mirror_info(dst)
+        self.mirror_metadata(dst)
 
     def mirror_meshes(self, dst: Accessor):
         raise NotImplementedError
@@ -118,8 +123,8 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             logger.warn(f"mirror_file {relative_path} failed: {str(e)}. fail_fast flag not set, continue...")
 
     @retry_dec()
-    def mirror_info(self, dst: Accessor):
-        super().mirror_info(dst)
+    def mirror_metadata(self, dst: Accessor):
+        super().mirror_metadata(dst)
 
     @retry_dec()
     def mirror_meshes(self, dst: Accessor, *, mesh_indicies: List[int], fail_fast=False):
@@ -134,7 +139,6 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             logger.warn(f"{e}, but fail_fast flag is not set... Skipping")
             return
             
-        self.mirror_info(dst)
         with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
             for progress in tqdm(
                 executor.map(
@@ -184,7 +188,7 @@ class HttpMirrorSrcAccessor(HttpAccessor, MirrorSrcAccessor):
             self.mirror_meshes(dst, mesh_indicies=mesh_indicies)
 
         logger.debug("Mirroring info ...")
-        self.mirror_info(dst)
+        self.mirror_metadata(dst)
 
         should_check_chunk_exists = hasattr(dst, "chunk_exists") and callable(dst.chunk_exists)
 
