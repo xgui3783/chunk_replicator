@@ -34,15 +34,15 @@ class MirrorSrcAccessor(Accessor):
     is_mirror_src = False
     is_mirror_dst = False
 
-    def mirror_metadata(self, dst: Accessor, overwite=False):
+    def mirror_metadata(self, dst: Accessor, overwrite=False):
         assert dst.can_write
 
         # mirror /info
         io = get_IO_for_existing_dataset(self)
-        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=overwite)
+        dst.store_file("info", json.dumps(io.info).encode("utf-8"), mime_type="application/json", overwrite=overwrite)
 
         # mirror /transform
-        dst.store_file("transform.json", self.fetch_file("transform.json"), mime_type="application/json", overwrite=overwite)
+        dst.store_file("transform.json", self.fetch_file("transform.json"), mime_type="application/json", overwrite=overwrite)
 
     def mirror_to(self, dst: Accessor, overwrite=False):
         self.mirror_chunks(dst, overwrite=overwrite)
