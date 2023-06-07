@@ -1,4 +1,4 @@
-from typing import List, Set, Tuple, Iterator
+from typing import List, Set, Tuple, Iterator, Dict
 from neuroglancer_scripts.accessor import Accessor, _CHUNK_PATTERN_FLAT
 from neuroglancer_scripts.file_accessor import FileAccessor
 from neuroglancer_scripts.http_accessor import HttpAccessor
@@ -10,6 +10,7 @@ import os
 import json
 from pathlib import Path
 import gzip
+from collections import defaultdict
 
 from .dataproxy import DataProxyBucket
 from .util import retry, retry_dec
@@ -203,7 +204,7 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 
     dataproxybucket: DataProxyBucket
 
-    _existing_obj_name_set: Set[str] = set()
+    _existing_obj_name_map_set: Dict[str, Set[str]] = defaultdict()
 
     GZIP_CONTENT_HEADER = {
         'Content-encoding': 'gzip'
@@ -265,7 +266,8 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         )
 
     def chunk_exists(self, key, chunk_coords):
-        if not self._existing_obj_name_set:
+
+        if self.prefix not in self._existing_obj_name_map_set:
 
             logger.debug(f"Checking existing objects. Listing existing objects for {self.prefix}...")
             
@@ -275,7 +277,8 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
                 unit="objects",
                 leave=True
             ):
-                self._existing_obj_name_set.add(obj.get("name"))
+                self._existing_obj_name_map_set[self.prefix].add(obj.get("name"))
+
 
         object_name = _CHUNK_PATTERN_FLAT.format(
             *chunk_coords,
@@ -283,7 +286,7 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
         )
         if self.prefix:
             object_name = f"{self.prefix}/{object_name}"
-        return object_name in self._existing_obj_name_set
+        return object_name in self._existing_obj_name_map_set[self.prefix]
 
 
 class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
