@@ -1,7 +1,8 @@
 from .accessor import (
     EbrainsDataproxyHttpReplicatorAccessor,
     HttpMirrorSrcAccessor,
-    LocalSrcAccessor
+    LocalSrcAccessor,
+    LocalMeshSrcAccessor,
 )
 
 from .exceptions import (
