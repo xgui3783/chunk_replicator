@@ -204,7 +204,7 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 
     dataproxybucket: DataProxyBucket
 
-    _existing_obj_name_map_set: Dict[str, Set[str]] = defaultdict()
+    _existing_obj_name_map_set: Dict[str, Set[str]] = defaultdict(set)
 
     GZIP_CONTENT_HEADER = {
         'Content-encoding': 'gzip'
