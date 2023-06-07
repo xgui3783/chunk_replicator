@@ -12,8 +12,10 @@ from pathlib import Path
 import gzip
 from collections import defaultdict
 
+from chunk_replicator.accessor import VBoundType
+
 from .dataproxy import DataProxyBucket
-from .util import retry, retry_dec
+from .util import retry_dec
 from .logger import logger
 from .exceptions import NoMeshException
 
@@ -322,6 +324,15 @@ class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
                             pass
 
                 dst.store_file(output_meshname, buf, mime_type)
+
+
+class LocalMeshSrcAccessor(LocalSrcAccessor):
+    def mirror_chunk(self, dst: Accessor, key_chunk_coords: Tuple[str, VBoundType], overwrite):
+        raise NotImplementedError(f"LocalMeshSrcAccessor do not have access to chunks")
+
+    def mirror_chunks(self, dst: Accessor, overwrite=False):
+        raise NotImplementedError(f"LocalMeshSrcAccessor do not have access to chunks")
+
 
 __all__ = [
     "LocalSrcAccessor",
