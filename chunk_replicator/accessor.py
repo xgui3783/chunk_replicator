@@ -12,8 +12,6 @@ from pathlib import Path
 import gzip
 from collections import defaultdict
 
-from chunk_replicator.accessor import VBoundType
-
 from .dataproxy import DataProxyBucket
 from .util import retry_dec
 from .logger import logger
