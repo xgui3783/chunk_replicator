@@ -337,5 +337,6 @@ class LocalMeshSrcAccessor(LocalSrcAccessor):
 __all__ = [
     "LocalSrcAccessor",
     "EbrainsDataproxyHttpReplicatorAccessor",
-    "HttpMirrorSrcAccessor"
+    "HttpMirrorSrcAccessor",
+    "LocalMeshSrcAccessor",
 ]
