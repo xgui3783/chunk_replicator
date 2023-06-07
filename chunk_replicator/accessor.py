@@ -332,7 +332,10 @@ class LocalMeshSrcAccessor(LocalSrcAccessor):
 
     def mirror_chunks(self, dst: Accessor, overwrite=False):
         raise NotImplementedError(f"LocalMeshSrcAccessor do not have access to chunks")
-
+    
+    def mirror_to(self, dst: Accessor, overwrite=False):
+        self.mirror_metadata(dst, overwrite=overwrite)
+        self.mirror_meshes(dst, overwrite=overwrite)
 
 __all__ = [
     "LocalSrcAccessor",
