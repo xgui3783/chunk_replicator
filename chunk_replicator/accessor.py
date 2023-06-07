@@ -292,6 +292,25 @@ class EbrainsDataproxyHttpReplicatorAccessor(Accessor):
 class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
     is_mirror_src = True
 
+    def mirror_mesh(self, dst: Accessor, mesh_filename: Path, dst_mesh_filename: Path):
+        buf = None
+        mime_type = "application/octet-stream"
+        
+        if mesh_filename.suffix == ".gz":
+            with gzip.open(mesh_filename,  "rb") as fp:
+                buf = fp.read()
+        else:
+            with open(mesh_filename, "rb") as fp:
+                buf = fp.read()
+                try:
+                    json.load(fp)
+                    mime_type = "application/json"
+                except json.JSONDecodeError:
+                    pass
+
+        dst.store_file(dst_mesh_filename, buf, mime_type)
+
+
     def mirror_meshes(self, dst: Accessor, overwrite=False):
         io = get_IO_for_existing_dataset(self)
         
@@ -301,27 +320,25 @@ class LocalSrcAccessor(FileAccessor, MirrorSrcAccessor):
         
         mesh_dir = Path(self.base_path) / mesh_path
 
-        for dirpath, dirnames, filenames in os.walk(mesh_dir):
-            for filename in filenames:
-                mesh_filename = Path(dirpath, filename)
-                output_meshname = Path(mesh_path, filename).with_suffix('')
+        mesh_params = [
+            (Path(dirpath, filename), Path(mesh_path, filename).with_suffix(''))
+            for dirpath, dirnames, filenames in os.walk(mesh_dir)
+            for filename in filenames
+        ]
 
-                buf = None
-                mime_type = "application/octet-stream"
-                
-                if mesh_filename.suffix == ".gz":
-                    with gzip.open(mesh_filename,  "rb") as fp:
-                        buf = fp.read()
-                else:
-                    with open(mesh_filename, "rb") as fp:
-                        buf = fp.read()
-                        try:
-                            json.load(fp)
-                            mime_type = "application/json"
-                        except json.JSONDecodeError:
-                            pass
-
-                dst.store_file(output_meshname, buf, mime_type)
+        with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
+            for progress in tqdm(
+                executor.map(
+                    self.mirror_mesh,
+                    repeat(dst),
+                    [param[0] for param in mesh_params],
+                    [param[1] for param in mesh_params],
+                ),
+                total=len(mesh_params),
+                leave=True,
+                unit="meshes",
+                desc="writing",
+            ): pass
 
 
 class LocalMeshSrcAccessor(LocalSrcAccessor):
