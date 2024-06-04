@@ -20,14 +20,15 @@ def retry_dec(times=5, wait=1):
         def inner(*args, **kwargs):
             exceptions = []
             counter=0
-            while counter < times:
+            while True:
                 try:
                     return fn(*args, **kwargs)
                 except Exception as e:
                     exceptions.append(e)
                     counter = counter + 1
                     sleep(wait)
-            raise RetryFailedException("\n".join([f"{e.__class__.__name__}: {str(e)}" for e in exceptions]))
+                if counter > 4:
+                    raise RetryFailedException("\n".join([f"{e.__class__.__name__}: {str(e)}" for e in exceptions])) from e
             
         return inner
     return outer
