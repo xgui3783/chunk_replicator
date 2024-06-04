@@ -24,9 +24,12 @@ def retry_dec(times=5, wait=1):
                 try:
                     return fn(*args, **kwargs)
                 except Exception as err:
-                    print("Error")
-                    print(err)
-                    print()
+                    print(f"Error {err.__class__.__name__}")
+                    print("vvvvv")
+                    import traceback
+                    for line in traceback.format_stack():
+                        print(line.strip())
+                    print("----")
                     exceptions.append(err)
                     counter = counter + 1
                     sleep(wait)
