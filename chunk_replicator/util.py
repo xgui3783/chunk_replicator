@@ -27,7 +27,7 @@ def retry_dec(times=5, wait=1):
                     exceptions.append(e)
                     counter = counter + 1
                     sleep(wait)
-            raise RetryFailedException(exceptions)
+            raise RetryFailedException("\n".join([f"{e.__class__.__name__}: {str(e)}" for e in exceptions]))
             
         return inner
     return outer
