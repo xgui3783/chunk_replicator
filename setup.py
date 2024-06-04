@@ -7,7 +7,7 @@ setup(name='chunk_replicator',
       author_email='xgui3783@gmail.com',
       packages=['chunk_replicator'],
       install_requires=[
-          "neuroglancer-scripts==1.0.0",
+          "neuroglancer_scripts @ git+https://github.com/HumanBrainProject/neuroglancer-scripts.git@0205370",
           "dataclasses; python_version < '3.7'",
           "tqdm"
       ]
