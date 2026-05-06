@@ -59,10 +59,10 @@ class NGPVolumeIO(VolumeIO):
             assert (
                 len(chunk_size) == 3
             ), f"assert len(chunk_size) == 3, but got {len(chunk_size)}"
-            
-            for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1):
+
+            for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1):
                 for y_chunk_idx in range((size[1] - 1) // chunk_size[1] + 1):
-                    for z_chunk_idx in range((size[2] - 1) // chunk_size[2] + 1):
+                    for x_chunk_idx in range((size[0] - 1) // chunk_size[0] + 1):
                         yield key, (
                             x_chunk_idx * chunk_size[0],
                             min((x_chunk_idx + 1) * chunk_size[0], size[0]),

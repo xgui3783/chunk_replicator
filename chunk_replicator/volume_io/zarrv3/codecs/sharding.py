@@ -104,8 +104,8 @@ class ShardingCodec(Codec[np.ndarray, bytes]):
         ]
         return int(
             relative_grid_idx[2] * 16
-            + relative_grid_idx[2] * subchunk_dim[1] * 16
-            + relative_grid_idx[2] * subchunk_dim[1] * subchunk_dim[0] * 16
+            + relative_grid_idx[1] * subchunk_dim[2] * 16
+            + relative_grid_idx[0] * subchunk_dim[2] * subchunk_dim[1] * 16
         )
 
     @classmethod

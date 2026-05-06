@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chunk-replicator"
+version = "0.0.1"
+description = "Convert volumes"
+readme = "README.md"
+authors = [
+    {name = "Xiao Gui", email = "xgui3783@gmail.com"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "requests",
+    "numpy",
+    "filelock",
+]
+
+[project.urls]
+# Homepage = "https://github.com/yourusername/your-package-name"
+# Documentation = "https://github.com/yourusername/your-package-name#readme"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chunk_replicator*"]
