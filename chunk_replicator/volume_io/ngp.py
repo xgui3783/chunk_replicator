@@ -17,7 +17,11 @@ class NgScale:
     resolution: TptInt = None
     chunk_sizes: list[TptInt] = None
     compressed_segmentation_block_size: Any = None
+    
     scale: Any = None
+    width: Any = None
+    height: Any = None
+    depth: Any = None
 
     def __post_init__(self):
         resolution = self.resolution

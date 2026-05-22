@@ -1,4 +1,4 @@
-from requests import Session
+from requests import Session, RequestException
 
 from .base import Accessor
 
@@ -19,7 +19,13 @@ class HttpAccessor(Accessor):
         end = str(offset + count - 1)
         if count <= -1:
             end = ""
-        headers = {"Range": f"bytes={offset}-{end}"}
-        resp = self._session.get(self.base_url + path, headers=headers)
-        resp.raise_for_status()
-        return bytes(resp.content)
+        retry_counter = 64
+        while retry_counter > 0:
+            try:
+                headers = {"Range": f"bytes={offset}-{end}"}
+                resp = self._session.get(self.base_url + path, headers=headers)
+                resp.raise_for_status()
+                return bytes(resp.content)
+            except RequestException as e:
+                retry_counter -= 1
+                print(f"retrying ... {retry_counter}")
